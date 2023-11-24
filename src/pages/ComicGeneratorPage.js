@@ -1,56 +1,29 @@
 // src/pages/ComicGeneratorPage.js
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import axios from "axios";
-import ComicPanel from "../components/ComicPanel";
-
-const API_KEY =
-  "VknySbLLTUjbxXAXCjyfaFIPwUTCeRXbFSOjwRiCxsxFyhbnGjSFalPKrpvvDAaPVzWEevPljilLVDBiTzfIbWFdxOkYJxnOPoHhkkVGzAknaOulWggusSFewzpqsNWM"; // Replace with your actual API key
-const API_URL =
-  "https://xdwvg9no7pefghrn.us-east-1.aws.endpoints.huggingface.cloud";
-
-async function query(data) {
-  try {
-    const response = await axios.post(API_URL, data, {
-      headers: {
-        Accept: "image/png",
-        Authorization: `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      responseType: "blob",
-    });
-
-    const result = new Blob([response.data], { type: "image/png" });
-    return result;
-  } catch (error) {
-    throw new Error(`Failed to generate comic: ${error.message}`);
-  }
-}
+import "./styles/ComicGeneratorPage.css";
 
 const ComicGeneratorPage = () => {
-  const [inputText, setInputText] = useState("");
-  const [comicPanels, setComicPanels] = useState([]);
-  const [error, setError] = useState(null);
-  const navigate = useNavigate();
+  const [panels, setPanels] = useState(
+    Array.from({ length: 10 }, () => ({ text: "", image: "" }))
+  );
+  const [loading, setLoading] = useState(false);
+
+  const handleTextChange = (index, value) => {
+    const updatedPanels = [...panels];
+    updatedPanels[index].text = value;
+    setPanels(updatedPanels);
+  };
 
   const generateComic = async (e) => {
     e.preventDefault();
 
-    const panelCount = 10;
-    const inputChunks = inputText.split(".").filter(Boolean);
-
-    if (inputChunks.length < panelCount) {
-      setError("Not enough sentences for the desired number of panels.");
-      return;
-    }
-
     try {
-      const responses = await Promise.all(
-        inputChunks.slice(0, panelCount).map(async (chunk, index) => {
+      setLoading(true);
+      const updatedPanels = await Promise.all(
+        panels.map(async (panel, index) => {
           try {
-            const response = await query({ inputs: chunk });
-            const imageURL = URL.createObjectURL(response);
-            return { index, imageURL };
+            const image = await query({ inputs: panel.text });
+            return { text: panel.text, image };
           } catch (error) {
             throw new Error(
               `Failed to generate comic for Panel ${index + 1}: ${
@@ -60,38 +33,75 @@ const ComicGeneratorPage = () => {
           }
         })
       );
-
-      // Sort the responses by index to ensure the order
-      const sortedResponses = responses.sort((a, b) => a.index - b.index);
-
-      setComicPanels(sortedResponses);
-      setError(null);
+      setPanels(updatedPanels);
     } catch (error) {
-      setError(error.message);
+      console.error(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
+  async function query(data) {
+    try {
+      console.log("Sending request to the API...");
+
+      const response = await fetch(
+        "https://xdwvg9no7pefghrn.us-east-1.aws.endpoints.huggingface.cloud",
+        {
+          headers: {
+            Accept: "image/png",
+            Authorization:
+              "Bearer VknySbLLTUjbxXAXCjyfaFIPwUTCeRXbFSOjwRiCxsxFyhbnGjSFalPKrpvvDAaPVzWEevPljilLVDBiTzfIbWFdxOkYJxnOPoHhkkVGzAknaOulWggusSFewzpqsNWM",
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify(data),
+        }
+      );
+
+      console.log("Received response from the API:", response);
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const result = await response.blob();
+      const imageUrl = URL.createObjectURL(result);
+
+      console.log("Image URL:", imageUrl);
+
+      // Check if the response contains image data
+      if (!result.size) {
+        throw new Error("API response did not contain image data");
+      }
+
+      return imageUrl;
+    } catch (error) {
+      console.error("Error in query function:", error);
+      throw error;
+    }
+  }
+
   return (
     <div className="comic-generator">
-      <h1>Comic Generator</h1>
-      <form onSubmit={generateComic}>
-        <label htmlFor="inputText">Input Text:</label>
-        <textarea
-          id="inputText"
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          rows="4"
-          cols="50"
-          required
-        />
-        <button type="submit">Generate Comic</button>
-      </form>
-      {error && <div className="error-message">{error}</div>}
-      <div className="comic-panel-container">
-        {comicPanels.map((panel, index) => (
-          <ComicPanel key={index} imageURL={panel.imageURL} />
+      <div className="panels-container">
+        {panels.map((panel, index) => (
+          <div key={index} className="panel">
+            <textarea
+              placeholder={`Enter text for Panel ${index + 1}`}
+              value={panel.text}
+              onChange={(e) => handleTextChange(index, e.target.value)}
+              required
+            />
+            {panel.image && (
+              <img src={panel.image} alt={`Comic Panel ${index + 1}`} />
+            )}
+          </div>
         ))}
       </div>
+      <button type="button" onClick={generateComic} disabled={loading}>
+        {loading ? "Generating..." : "Generate Comic"}
+      </button>
     </div>
   );
 };
